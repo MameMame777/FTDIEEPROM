@@ -52,7 +52,12 @@ class Ft4232HEepromManager:
 
     def list_devices(self, serial: str | None = None) -> list[DeviceInfo]:
         usb_core, usb_util = self._import_usb_modules()
-        devices = usb_core.find(find_all=True, idVendor=self.vendor_id, idProduct=self.product_id) or []
+        try:
+            devices = usb_core.find(find_all=True, idVendor=self.vendor_id, idProduct=self.product_id) or []
+        except usb_core.NoBackendError as exc:
+            raise EepromManagerError(
+                "PyUSB backend is not available. Install a libusb backend or run EEPROM access on Linux."
+            ) from exc
         matches: list[DeviceInfo] = []
         for device in devices:
             serial_text = self._safe_usb_string(usb_util, device, getattr(device, "iSerialNumber", 0))

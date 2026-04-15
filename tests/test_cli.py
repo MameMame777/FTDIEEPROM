@@ -5,7 +5,7 @@ import argparse
 import pytest
 
 from ftdi_eeprom.cli import CliValidationError, build_override_tree, build_parser, resolve_url_from_args, validate_command_args
-from ftdi_eeprom.eeprom_manager import DeviceInfo, DeviceSelectionError, Ft4232HEepromManager
+from ftdi_eeprom.eeprom_manager import DeviceInfo, EepromManagerError, Ft4232HEepromManager
 
 
 class FakeManager:
@@ -72,3 +72,20 @@ def test_auto_probe_falls_back_to_second_interface(monkeypatch):
     monkeypatch.setattr(manager, "probe_url", fake_probe)
     assert manager.auto_probe_url("ABC") == "ftdi://ftdi:4232h:ABC/2"
     assert attempted == ["ftdi://ftdi:4232h:ABC/1", "ftdi://ftdi:4232h:ABC/2"]
+
+
+def test_list_devices_wraps_missing_pyusb_backend(monkeypatch):
+    manager = Ft4232HEepromManager()
+
+    class FakeUsbCore:
+        class NoBackendError(Exception):
+            pass
+
+        @staticmethod
+        def find(**_kwargs):
+            raise FakeUsbCore.NoBackendError("no backend")
+
+    monkeypatch.setattr(manager, "_import_usb_modules", lambda: (FakeUsbCore, object()))
+
+    with pytest.raises(EepromManagerError, match="PyUSB backend is not available"):
+        manager.list_devices()
