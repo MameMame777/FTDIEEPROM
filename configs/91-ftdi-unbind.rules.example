@@ -1,0 +1,4 @@
+# Auto-generated FT4232H unbind rules
+# USB interface node match: ENV{DEVTYPE} with parent ATTRS lookups and direct interface ATTR
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", DRIVER=="ftdi_sio", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ATTRS{product}=="FT4232H Vivado SPI Bridge", ATTR{bInterfaceNumber}=="00", RUN+="/usr/local/bin/ftdi-unbind.sh %k"
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", DRIVER=="ftdi_sio", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ATTRS{product}=="FT4232H Vivado SPI Bridge", ATTR{bInterfaceNumber}=="01", RUN+="/usr/local/bin/ftdi-unbind.sh %k"

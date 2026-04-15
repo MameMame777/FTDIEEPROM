@@ -1,0 +1,55 @@
+{
+  "device": {
+    "chip": "FT4232H",
+    "vendor_id": 1027,
+    "product_id": 24593,
+    "manufacturer": "FTDI",
+    "product": "FT4232H Vivado Bridge",
+    "serial": "FT4232H0001",
+    "power_max": 100,
+    "has_serial": true,
+    "mirror_eeprom": true,
+    "pnp": true
+  },
+  "channels": {
+    "A": {
+      "driver": "D2XX",
+      "type": "UART",
+      "drive_current_ma": 16
+    },
+    "B": {
+      "driver": "D2XX",
+      "type": "UART",
+      "drive_current_ma": 16
+    },
+    "C": {
+      "driver": "D2XX",
+      "type": "UART",
+      "drive_current_ma": 16
+    },
+    "D": {
+      "driver": "D2XX",
+      "type": "UART",
+      "drive_current_ma": 16
+    }
+  },
+  "vivado": {
+    "enabled": true,
+    "firmware_id": 1481244676,
+    "user_area": {
+      "vendor": "Xilinx",
+      "product": "FT4232H JTAG"
+    }
+  },
+  "udev": {
+    "group": "FPGAuser",
+    "mode": "0660",
+    "script_path": "/usr/local/bin/ftdi-unbind.sh",
+    "unbind_interfaces": [
+      "00",
+      "01",
+      "02",
+      "03"
+    ]
+  }
+}

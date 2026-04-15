@@ -1,0 +1,3 @@
+# Auto-generated FT4232H permission rule
+# USB device node match: ENV{DEVTYPE} with direct ATTR lookups
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0403", ATTR{idProduct}=="6011", ATTR{product}=="FT4232H Vivado SPI Bridge", GROUP="FPGAuser", MODE="0660"
