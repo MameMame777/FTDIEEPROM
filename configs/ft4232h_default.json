@@ -3,8 +3,8 @@
     "chip": "FT4232H",
     "vendor_id": 1027,
     "product_id": 24593,
-    "manufacturer": "FTDI",
-    "product": "FT4232H Vivado SPI Bridge",
+    "manufacturer": "Xilinx",
+    "product": "FT4232H Vivado Bridge",
     "serial": "FT4232H0001",
     "power_max": 100,
     "has_serial": true,
@@ -15,12 +15,12 @@
     "A": {
       "driver": "D2XX",
       "type": "UART",
-      "drive_current_ma": 16
+      "drive_current_ma": 4
     },
     "B": {
       "driver": "D2XX",
       "type": "UART",
-      "drive_current_ma": 16
+      "drive_current_ma": 4
     },
     "C": {
       "driver": "VCP",

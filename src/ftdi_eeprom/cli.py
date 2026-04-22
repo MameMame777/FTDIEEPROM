@@ -101,6 +101,10 @@ def resolve_url_from_args(args: argparse.Namespace, manager: Ft4232HEepromManage
         return args.url
 
     devices = manager.list_devices(serial=getattr(args, "serial", None))
+    if not devices and getattr(args, "serial", None):
+        unfiltered_devices = manager.list_devices()
+        if len(unfiltered_devices) == 1 and unfiltered_devices[0].serial is None:
+            devices = unfiltered_devices
     if not devices:
         raise CliValidationError("No FT4232H devices found")
     if not getattr(args, "serial", None) and len(devices) > 1:

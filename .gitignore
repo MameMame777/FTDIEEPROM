@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+venv_wsl/
 .venv/
 venv/
 build/
@@ -11,4 +12,6 @@ dist/
 output/
 *.bin
 *.ini
+*.jou
 *.log
+CLAUDE.md

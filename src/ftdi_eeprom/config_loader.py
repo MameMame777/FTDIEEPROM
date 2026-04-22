@@ -24,8 +24,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "chip": CHIP_NAME,
         "vendor_id": 0x0403,
         "product_id": 0x6011,
-        "manufacturer": "FTDI",
-        "product": "FT4232H Vivado SPI Bridge",
+        "manufacturer": "Xilinx",
+        "product": "FT4232H Vivado Bridge",
         "serial": "FT4232H0001",
         "power_max": 100,
         "has_serial": True,
@@ -33,8 +33,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "pnp": True,
     },
     "channels": {
-        "A": {"driver": "D2XX", "type": "UART", "drive_current_ma": 16},
-        "B": {"driver": "D2XX", "type": "UART", "drive_current_ma": 16},
+        "A": {"driver": "D2XX", "type": "UART", "drive_current_ma": 4},
+        "B": {"driver": "D2XX", "type": "UART", "drive_current_ma": 4},
         "C": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
         "D": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
     },
@@ -121,7 +121,6 @@ def iter_eeprom_properties(config: Mapping[str, Any]) -> list[tuple[str, Any]]:
         ("product", device["product"]),
         ("power_max", device["power_max"]),
         ("has_serial", bool(device.get("has_serial", True))),
-        ("pnp", bool(device.get("pnp", True))),
     ]
     serial_value = str(device.get("serial", "")).strip()
     if serial_value:
@@ -193,8 +192,11 @@ def _validate_channels(channels: Any) -> None:
 def _validate_vivado(vivado: Any, device: Mapping[str, Any]) -> None:
     if not isinstance(vivado, Mapping):
         raise ConfigValidationError("vivado must be an object")
-    if "enabled" in vivado and not isinstance(vivado["enabled"], bool):
+    enabled = vivado.get("enabled", False)
+    if "enabled" in vivado and not isinstance(enabled, bool):
         raise ConfigValidationError("vivado.enabled must be a boolean")
+    if enabled and str(device.get("manufacturer", "")).strip() != "Xilinx":
+        raise ConfigValidationError("device.manufacturer must be Xilinx when vivado.enabled is true")
     firmware_id = vivado.get("firmware_id", 0x584A0004)
     _validate_int(firmware_id, "vivado.firmware_id", minimum=0, maximum=0xFFFFFFFF)
     user_area = vivado.get("user_area", {})

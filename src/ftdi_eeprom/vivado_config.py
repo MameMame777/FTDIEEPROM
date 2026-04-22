@@ -9,11 +9,11 @@ VIVADO_FIRMWARE_ID = 0x584A0004
 
 
 def build_vivado_preset() -> dict[str, Any]:
-    return merge_config(
+    config = merge_config(
         get_default_config(),
         {
             "device": {
-                "manufacturer": "FTDI",
+                "manufacturer": "Xilinx",
                 "product": "FT4232H Vivado Bridge",
                 "power_max": 100,
                 "has_serial": True,
@@ -21,10 +21,10 @@ def build_vivado_preset() -> dict[str, Any]:
                 "pnp": True,
             },
             "channels": {
-                "A": {"driver": "D2XX", "type": "UART", "drive_current_ma": 16},
-                "B": {"driver": "D2XX", "type": "UART", "drive_current_ma": 16},
-                "C": {"driver": "D2XX", "type": "UART", "drive_current_ma": 16},
-                "D": {"driver": "D2XX", "type": "UART", "drive_current_ma": 16},
+                "A": {"driver": "D2XX", "type": "UART", "drive_current_ma": 4},
+                "B": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
+                "C": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
+                "D": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
             },
             "vivado": {
                 "enabled": True,
@@ -42,6 +42,8 @@ def build_vivado_preset() -> dict[str, Any]:
             },
         },
     )
+    config.pop("runtime_profile", None)
+    return config
 
 
 def has_vivado_payload(config: Mapping[str, Any]) -> bool:

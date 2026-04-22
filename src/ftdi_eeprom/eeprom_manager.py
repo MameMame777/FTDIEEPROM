@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from importlib import import_module
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, cast
 
-from . import eeprom_backend
+from . import d2xx_backend, eeprom_backend
 from .config_loader import iter_eeprom_properties
 from .vivado_config import build_user_area_payload, has_vivado_payload
 
@@ -51,13 +52,22 @@ class Ft4232HEepromManager:
         self.chip_name = chip_name
 
     def list_devices(self, serial: str | None = None) -> list[DeviceInfo]:
+        if sys.platform.startswith("win"):
+            return [
+                DeviceInfo(
+                    serial=device["serial"],
+                    manufacturer=None,
+                    product=device["description"],
+                    bus=None,
+                    address=None,
+                )
+                for device in d2xx_backend.list_devices(self.vendor_id, self.product_id, serial)
+            ]
         usb_core, usb_util = self._import_usb_modules()
         try:
-            devices = usb_core.find(find_all=True, idVendor=self.vendor_id, idProduct=self.product_id) or []
+            devices = cast(list[Any], usb_core.find(find_all=True, idVendor=self.vendor_id, idProduct=self.product_id) or [])
         except usb_core.NoBackendError as exc:
-            raise EepromManagerError(
-                "PyUSB backend is not available. Install a libusb backend or run EEPROM access on Linux."
-            ) from exc
+            raise EepromManagerError("PyUSB backend is not available. Install a libusb backend such as libusb-1.0 and retry.") from exc
         matches: list[DeviceInfo] = []
         for device in devices:
             serial_text = self._safe_usb_string(usb_util, device, getattr(device, "iSerialNumber", 0))
@@ -75,7 +85,7 @@ class Ft4232HEepromManager:
         return matches
 
     def format_devices(self, devices: list[DeviceInfo]) -> str:
-        lines = []
+        lines: list[str] = []
         for index, device in enumerate(devices, start=1):
             serial = device.serial or "<no-serial>"
             product = device.product or "<unknown-product>"
@@ -108,17 +118,23 @@ class Ft4232HEepromManager:
 
     @contextmanager
     def open_eeprom(self, url: str) -> Iterator[Any]:
-        FtdiEeprom = self._import_pyftdi_eeprom()
-        eeprom = FtdiEeprom()
+        eeprom = None
         try:
-            eeprom.open(url)
+            if sys.platform.startswith("win"):
+                eeprom = d2xx_backend.open_eeprom(url, self.vendor_id, self.product_id, self.chip_name)
+            else:
+                self._ensure_usb_backend_available()
+                FtdiEeprom = self._import_pyftdi_eeprom()
+                eeprom = FtdiEeprom()
+                eeprom.open(url)
             yield eeprom
         except Exception as exc:  # pragma: no cover - hardware dependent
             raise EepromManagerError(f"Failed to open EEPROM at {url}: {exc}") from exc
         finally:
-            close = getattr(eeprom, "close", None)
-            if callable(close):
-                close()
+            if eeprom is not None:
+                close = getattr(eeprom, "close", None)
+                if callable(close):
+                    close()
 
     def read(self, url: str) -> dict[str, Any]:
         with self.open_eeprom(url) as eeprom:
@@ -152,13 +168,17 @@ class Ft4232HEepromManager:
     def write(self, url: str, config: Mapping[str, Any], backup_prefix: str | Path) -> WriteResult:
         with self.open_eeprom(url) as eeprom:
             backup = self._create_backup_from_eeprom(eeprom, backup_prefix)
-            self._apply_public_properties(eeprom, config)
             user_area_payload = build_user_area_payload(config) if has_vivado_payload(config) else b""
-            if user_area_payload:
-                offset = eeprom_backend.get_user_area_offset(eeprom)
-                eeprom_backend.write_user_area(eeprom, offset, user_area_payload, dry_run=False)
+            if sys.platform.startswith("win"):
+                d2xx_backend.program_eeprom(eeprom, config, user_area_payload)
             else:
-                eeprom.commit(dry_run=False)
+                self._apply_public_properties(eeprom, config)
+                if user_area_payload:
+                    offset = eeprom_backend.get_user_area_offset(eeprom)
+                    eeprom_backend.write_user_area(eeprom, offset, user_area_payload, dry_run=False)
+                else:
+                    eeprom.commit(dry_run=False)
+            self._refresh_device_enumeration(eeprom)
         property_names = [name for name, _ in iter_eeprom_properties(config)]
         return WriteResult(url=url, backup=backup, property_names=property_names, user_area_length=len(user_area_payload))
 
@@ -166,14 +186,27 @@ class Ft4232HEepromManager:
         image = Path(image_path).read_bytes()
         with self.open_eeprom(url) as eeprom:
             backup = self._create_backup_from_eeprom(eeprom, backup_prefix)
-            eeprom_backend.write_raw_image(eeprom, image, dry_run=False)
+            if sys.platform.startswith("win"):
+                eeprom_backend.decode_raw_image(eeprom, image)
+                decoded_config = eeprom_backend.get_decoded_config(eeprom)
+                user_area_offset = eeprom_backend.get_user_area_offset(eeprom)
+                d2xx_backend.restore_eeprom(eeprom, decoded_config, image, user_area_offset)
+            else:
+                eeprom_backend.write_raw_image(eeprom, image, dry_run=False)
+            self._refresh_device_enumeration(eeprom)
         return backup
 
     def restore_config(self, url: str, ini_path: str | Path, backup_prefix: str | Path) -> BackupArtifacts:
         with self.open_eeprom(url) as eeprom:
             backup = self._create_backup_from_eeprom(eeprom, backup_prefix)
-            eeprom.load_config(str(ini_path))
-            eeprom.commit(dry_run=False)
+            with Path(ini_path).open("r", encoding="utf-8") as config_file:
+                eeprom.load_config(config_file)
+            if sys.platform.startswith("win"):
+                decoded_config = eeprom_backend.get_decoded_config(eeprom)
+                d2xx_backend.program_decoded_eeprom(eeprom, decoded_config)
+            else:
+                eeprom.commit(dry_run=False)
+            self._refresh_device_enumeration(eeprom)
         return backup
 
     def default_backup_prefix(self, operation: str) -> Path:
@@ -183,7 +216,16 @@ class Ft4232HEepromManager:
     def _apply_public_properties(self, eeprom: Any, config: Mapping[str, Any]) -> None:
         if config["device"].get("mirror_eeprom", True):
             eeprom.enable_mirroring(True)
+        string_properties = {
+            "manufacturer": getattr(eeprom, "set_manufacturer_name"),
+            "product": getattr(eeprom, "set_product_name"),
+            "serial": getattr(eeprom, "set_serial_number"),
+        }
         for property_name, property_value in iter_eeprom_properties(config):
+            setter = string_properties.get(property_name)
+            if setter is not None:
+                setter(property_value)
+                continue
             eeprom.set_property(property_name, property_value)
 
     def _create_backup_from_eeprom(self, eeprom: Any, basename: str | Path) -> BackupArtifacts:
@@ -194,17 +236,30 @@ class Ft4232HEepromManager:
         bin_path = base.with_suffix(".bin")
         ini_path = base.with_suffix(".ini")
         bin_path.write_bytes(bytes(eeprom.data))
-        eeprom.save_config(str(ini_path))
+        with ini_path.open("w", encoding="utf-8") as config_file:
+            eeprom.save_config(config_file)
         return BackupArtifacts(bin_path=bin_path, ini_path=ini_path)
 
     def _capture_config_text(self, eeprom: Any) -> str:
         with TemporaryDirectory() as temp_dir:
             ini_path = Path(temp_dir) / "snapshot.ini"
-            eeprom.save_config(str(ini_path))
+            with ini_path.open("w", encoding="utf-8") as config_file:
+                eeprom.save_config(config_file)
             return ini_path.read_text(encoding="utf-8")
 
+    def _refresh_device_enumeration(self, eeprom: Any) -> None:
+        if not sys.platform.startswith("win"):
+            return
+        ftdi = getattr(eeprom, "_ftdi", None)
+        reset = getattr(ftdi, "reset", None)
+        if callable(reset):
+            try:
+                reset(usb_reset=True)
+            except TypeError:
+                reset()
+
     def _format_hexdump(self, payload: bytes, width: int = 16) -> str:
-        lines = []
+        lines: list[str] = []
         for offset in range(0, len(payload), width):
             chunk = payload[offset : offset + width]
             hex_part = " ".join(f"{byte:02x}" for byte in chunk)
@@ -223,6 +278,13 @@ class Ft4232HEepromManager:
             return import_module("usb.core"), import_module("usb.util")
         except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
             raise EepromManagerError("pyusb is required but not installed") from exc
+
+    def _ensure_usb_backend_available(self) -> None:
+        usb_core, _ = self._import_usb_modules()
+        try:
+            usb_core.find(find_all=False, idVendor=self.vendor_id, idProduct=self.product_id)
+        except usb_core.NoBackendError as exc:
+            raise EepromManagerError("PyUSB backend is not available. Install a libusb backend such as libusb-1.0 and retry.") from exc
 
     def _safe_usb_string(self, usb_util: Any, device: Any, index: int) -> str | None:
         if not index:

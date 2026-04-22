@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -9,6 +10,11 @@ class PrivateApiError(RuntimeError):
 
 def get_user_area_offset(eeprom: Any) -> int:
     props = _require_private_attr(eeprom, "_PROPERTIES")
+    if isinstance(props, Mapping):
+        device_version = _require_private_attr(eeprom, "device_version")
+        if device_version not in props:
+            raise PrivateApiError(f"Unable to infer FT4232H User Area offset for device version: {device_version}")
+        props = props[device_version]
     if hasattr(props, "user"):
         return int(props.user)
     if isinstance(props, (tuple, list)) and len(props) >= 2:
@@ -39,6 +45,30 @@ def sync_eeprom(eeprom: Any) -> None:
     sync()
 
 
+def get_decoded_config(eeprom: Any) -> dict[str, Any]:
+    sync_eeprom(eeprom)
+    config = _require_private_attr(eeprom, "_config")
+    if not isinstance(config, Mapping):
+        raise PrivateApiError("pyftdi private _config map is not a mapping")
+    return dict(config)
+
+
+def decode_raw_image(eeprom: Any, image: bytes) -> bytes:
+    buffer = _require_buffer(eeprom)
+    if len(image) != len(buffer):
+        raise PrivateApiError(
+            f"Raw image length mismatch: expected {len(buffer)} bytes, got {len(image)} bytes"
+        )
+    buffer[:] = image
+    compute_crc = _require_private_attr(eeprom, "_compute_crc")
+    compute_crc(buffer, True)
+    if not bool(_require_private_attr(eeprom, "_valid")):
+        raise PrivateApiError("Loaded raw image is invalid (CRC mismatch)")
+    decode = _require_private_attr(eeprom, "_decode_eeprom")
+    decode()
+    return bytes(buffer)
+
+
 def write_user_area(eeprom: Any, offset: int, data: bytes, *, dry_run: bool = False) -> bytes:
     sync_eeprom(eeprom)
     buffer = _require_buffer(eeprom)
@@ -50,8 +80,6 @@ def write_user_area(eeprom: Any, offset: int, data: bytes, *, dry_run: bool = Fa
 
     end_offset = offset + len(data)
     buffer[offset:end_offset] = data
-    if end_offset < writable_limit:
-        buffer[end_offset:writable_limit] = b"\x00" * (writable_limit - end_offset)
 
     update_crc = _require_private_attr(eeprom, "_update_crc")
     update_crc()
