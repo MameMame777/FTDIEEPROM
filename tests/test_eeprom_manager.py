@@ -126,7 +126,6 @@ def test_apply_public_properties_uses_string_setters_for_var_strings():
                 "serial": "FTABPV9D",
                 "power_max": 100,
                 "has_serial": True,
-                "mirror_eeprom": True,
                 "pnp": True,
             },
             "channels": {
@@ -138,7 +137,7 @@ def test_apply_public_properties_uses_string_setters_for_var_strings():
         },
     )
 
-    assert eeprom.mirroring == [True]
+    assert eeprom.mirroring == []
     assert eeprom.manufacturer == ["Xilinx"]
     assert eeprom.product == ["FT4232H Vivado SPI-B Bridge"]
     assert eeprom.serial == ["FTABPV9D"]
@@ -185,7 +184,6 @@ def test_write_uses_d2xx_program_eeprom_on_windows(tmp_path, monkeypatch):
             "serial": "FT4232H0001",
             "power_max": 100,
             "has_serial": True,
-            "mirror_eeprom": True,
             "pnp": True,
         },
         "channels": {

@@ -17,7 +17,6 @@ def build_vivado_preset() -> dict[str, Any]:
                 "product": "FT4232H Vivado Bridge",
                 "power_max": 100,
                 "has_serial": True,
-                "mirror_eeprom": True,
                 "pnp": True,
             },
             "channels": {

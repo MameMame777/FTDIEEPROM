@@ -8,7 +8,6 @@
     "serial": "FT4232H0001",
     "power_max": 100,
     "has_serial": true,
-    "mirror_eeprom": true,
     "pnp": true
   },
   "channels": {

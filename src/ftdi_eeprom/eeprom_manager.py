@@ -214,8 +214,6 @@ class Ft4232HEepromManager:
         return Path.cwd() / f"ftdi-eeprom-{operation}-backup-{timestamp}"
 
     def _apply_public_properties(self, eeprom: Any, config: Mapping[str, Any]) -> None:
-        if config["device"].get("mirror_eeprom", True):
-            eeprom.enable_mirroring(True)
         string_properties = {
             "manufacturer": getattr(eeprom, "set_manufacturer_name"),
             "product": getattr(eeprom, "set_product_name"),
