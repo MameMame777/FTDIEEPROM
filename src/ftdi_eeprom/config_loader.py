@@ -29,7 +29,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "serial": "FT4232H0001",
         "power_max": 100,
         "has_serial": True,
-        "mirror_eeprom": True,
         "pnp": True,
     },
     "channels": {
@@ -153,8 +152,6 @@ def _validate_device(device: Any) -> None:
         raise ConfigValidationError("device.serial must be a string when provided")
     if "has_serial" in device and not isinstance(device["has_serial"], bool):
         raise ConfigValidationError("device.has_serial must be a boolean")
-    if "mirror_eeprom" in device and not isinstance(device["mirror_eeprom"], bool):
-        raise ConfigValidationError("device.mirror_eeprom must be a boolean")
     if "pnp" in device and not isinstance(device["pnp"], bool):
         raise ConfigValidationError("device.pnp must be a boolean")
 
