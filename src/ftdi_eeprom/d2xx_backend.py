@@ -60,6 +60,8 @@ def open_eeprom(
         FtdiEeprom = import_module("pyftdi.eeprom").FtdiEeprom
         eeprom = FtdiEeprom()
         eeprom.connect(_D2xxFtdiAdapter(handle, eeprom_size))
+        eeprom_backend_module = import_module("ftdi_eeprom.eeprom_backend")
+        eeprom_backend_module.force_eeprom_size(eeprom, eeprom_size)
         return eeprom
     except Exception:
         handle.close()
@@ -68,6 +70,29 @@ def open_eeprom(
 
 def program_eeprom(eeprom: Any, config: Mapping[str, Any], user_area_payload: bytes) -> None:
     _program_handle(_require_handle(eeprom), _build_settings_from_config(config), user_area_payload)
+
+
+def verify_eeprom_write(eeprom: Any, config: Mapping[str, Any]) -> None:
+    handle = _require_handle(eeprom)
+    progdata = handle.eeRead()
+    device = config["device"]
+    expected = {
+        "VendorId": int(device["vendor_id"]),
+        "ProductId": int(device["product_id"]),
+        "Manufacturer": str(device["manufacturer"]).encode("utf-8"),
+        "Description": str(device["product"]).encode("utf-8"),
+    }
+    if bool(device.get("has_serial", True)) and str(device.get("serial", "")).strip():
+        expected["SerialNumber"] = str(device["serial"]).strip().encode("utf-8")
+    mismatches = []
+    for field, want in expected.items():
+        got = getattr(progdata, field, None)
+        if isinstance(want, bytes) and isinstance(got, str):
+            got = got.encode("utf-8")
+        if got != want:
+            mismatches.append(f"{field}: expected {want!r}, got {got!r}")
+    if mismatches:
+        raise RuntimeError("EEPROM verify-read mismatch: " + "; ".join(mismatches))
 
 
 def program_decoded_eeprom(

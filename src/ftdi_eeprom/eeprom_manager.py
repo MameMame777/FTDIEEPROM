@@ -11,7 +11,12 @@ from typing import Any, Iterator, Mapping, cast
 
 from . import d2xx_backend, eeprom_backend
 from .config_loader import DEFAULT_EEPROM_SIZE_BYTES, iter_eeprom_properties
-from .vivado_config import build_user_area_payload, has_vivado_payload, validate_user_area_fits
+from .vivado_config import (
+    build_user_area_payload,
+    compute_available_ua_bytes,
+    has_vivado_payload,
+    validate_user_area_fits,
+)
 
 
 class EepromManagerError(RuntimeError):
@@ -202,14 +207,17 @@ class Ft4232HEepromManager:
             backup = self._create_backup_from_eeprom(eeprom, backup_prefix)
             user_area_payload = build_user_area_payload(config) if has_vivado_payload(config) else b""
             if user_area_payload:
-                ua_offset = eeprom_backend.get_user_area_offset(eeprom)
-                available_ua = eeprom_backend.get_user_area_size(eeprom, ua_offset)
+                available_ua = compute_available_ua_bytes(size, config["device"])
                 try:
                     validate_user_area_fits(user_area_payload, available_ua)
                 except ValueError as exc:
                     raise EepromManagerError(str(exc)) from exc
             if sys.platform.startswith("win"):
                 d2xx_backend.program_eeprom(eeprom, config, user_area_payload)
+                try:
+                    d2xx_backend.verify_eeprom_write(eeprom, config)
+                except RuntimeError as exc:
+                    raise EepromManagerError(f"Post-write verify failed; restore from {backup.bin_path}: {exc}") from exc
             else:
                 self._apply_public_properties(eeprom, config)
                 if user_area_payload:

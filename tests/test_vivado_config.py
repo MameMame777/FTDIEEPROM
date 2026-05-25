@@ -10,6 +10,8 @@ from ftdi_eeprom.vivado_config import (
     VIVADO_FIRMWARE_ID,
     build_user_area_payload,
     build_vivado_preset,
+    compute_available_ua_bytes,
+    compute_string_descriptor_bytes,
     has_vivado_payload,
     validate_user_area_fits,
 )
@@ -60,3 +62,27 @@ def test_validate_user_area_fits_rejects_oversized_payload():
 def test_validate_user_area_fits_rejects_negative_room():
     with pytest.raises(ValueError, match="negative"):
         validate_user_area_fits(b"\x00\x01", available_ua_bytes=-1)
+
+
+def test_compute_string_descriptor_bytes_counts_utf16_and_headers():
+    device = {"manufacturer": "Xilinx", "product": "FT4232H", "serial": "FT4232H0001", "has_serial": True}
+    # Xilinx: 2 + 12, FT4232H: 2 + 14, FT4232H0001: 2 + 22, terminator: 2
+    assert compute_string_descriptor_bytes(device) == 14 + 16 + 24 + 2
+
+
+def test_compute_string_descriptor_bytes_skips_serial_when_disabled():
+    device = {"manufacturer": "Xilinx", "product": "FT4232H", "serial": "X", "has_serial": False}
+    assert compute_string_descriptor_bytes(device) == 14 + 16 + 2
+
+
+def test_compute_available_ua_bytes_for_93c46_with_default_preset():
+    device = build_vivado_preset()["device"]
+    device["product"] = "FT4232H"
+    device["serial"] = "FT4232H0001"
+    # 128 - header(26) - crc(2) - strings(56) = 44
+    assert compute_available_ua_bytes(128, device) == 44
+
+
+def test_compute_available_ua_bytes_for_93c56_with_default_preset():
+    device = build_vivado_preset()["device"]
+    assert compute_available_ua_bytes(256, device) > 100

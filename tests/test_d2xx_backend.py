@@ -145,6 +145,63 @@ def test_open_eeprom_rejects_unsupported_eeprom_size():
         d2xx_backend.open_eeprom("ftdi://ftdi:4232h/1", 0x0403, 0x6011, "4232h", eeprom_size=192)
 
 
+def test_verify_eeprom_write_passes_when_fields_match():
+    progdata = SimpleNamespace(
+        VendorId=0x0403,
+        ProductId=0x6011,
+        Manufacturer=b"Xilinx",
+        Description=b"FT4232H",
+        SerialNumber=b"FT4232H0001",
+    )
+
+    class FakeHandle:
+        def eeRead(self):
+            return progdata
+
+    eeprom = SimpleNamespace(_ftdi=SimpleNamespace(_handle=FakeHandle()))
+    config = {
+        "device": {
+            "vendor_id": 0x0403,
+            "product_id": 0x6011,
+            "manufacturer": "Xilinx",
+            "product": "FT4232H",
+            "serial": "FT4232H0001",
+            "has_serial": True,
+        },
+    }
+
+    d2xx_backend.verify_eeprom_write(eeprom, config)
+
+
+def test_verify_eeprom_write_raises_on_field_mismatch():
+    progdata = SimpleNamespace(
+        VendorId=0x0403,
+        ProductId=0x6011,
+        Manufacturer=b"FTDI",  # mismatch
+        Description=b"FT4232H",
+        SerialNumber=b"FT4232H0001",
+    )
+
+    class FakeHandle:
+        def eeRead(self):
+            return progdata
+
+    eeprom = SimpleNamespace(_ftdi=SimpleNamespace(_handle=FakeHandle()))
+    config = {
+        "device": {
+            "vendor_id": 0x0403,
+            "product_id": 0x6011,
+            "manufacturer": "Xilinx",
+            "product": "FT4232H",
+            "serial": "FT4232H0001",
+            "has_serial": True,
+        },
+    }
+
+    with pytest.raises(RuntimeError, match="EEPROM verify-read mismatch"):
+        d2xx_backend.verify_eeprom_write(eeprom, config)
+
+
 def test_program_eeprom_maps_config_to_ftd2xx_progdata_fields():
     class FakeHandle:
         def __init__(self):

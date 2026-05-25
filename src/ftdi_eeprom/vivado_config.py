@@ -7,6 +7,10 @@ from .config_loader import get_default_config, merge_config
 
 VIVADO_FIRMWARE_ID = 0x584A0004
 
+FT4232H_HEADER_BYTES = 0x1A
+EEPROM_CRC_BYTES = 2
+STRING_TERMINATOR_BYTES = 2
+
 
 def build_vivado_preset() -> dict[str, Any]:
     config = merge_config(
@@ -57,6 +61,25 @@ def build_user_area_payload(config: Mapping[str, Any]) -> bytes:
     product = str(user_area.get("product") or config["device"]["product"])
     firmware_id = int(vivado.get("firmware_id", VIVADO_FIRMWARE_ID))
     return struct.pack("<I", firmware_id) + vendor.encode("utf-8") + b"\x00" + product.encode("utf-8") + b"\x00"
+
+
+def compute_string_descriptor_bytes(device: Mapping[str, Any]) -> int:
+    def desc_len(text: str) -> int:
+        return 2 + len(str(text).encode("utf-16-le"))
+
+    total = desc_len(device.get("manufacturer", ""))
+    total += desc_len(device.get("product", ""))
+    serial = str(device.get("serial", "")).strip()
+    has_serial = bool(device.get("has_serial", True))
+    if has_serial and serial:
+        total += desc_len(serial)
+    total += STRING_TERMINATOR_BYTES
+    return total
+
+
+def compute_available_ua_bytes(eeprom_size_bytes: int, device: Mapping[str, Any]) -> int:
+    string_bytes = compute_string_descriptor_bytes(device)
+    return eeprom_size_bytes - FT4232H_HEADER_BYTES - EEPROM_CRC_BYTES - string_bytes
 
 
 def validate_user_area_fits(payload: bytes, available_ua_bytes: int) -> None:

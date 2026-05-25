@@ -123,3 +123,20 @@ def assert_eeprom_size(eeprom: Any, expected: int) -> None:
         raise PrivateApiError(
             f"EEPROM buffer size mismatch: expected {expected} bytes, chip reports {actual} bytes"
         )
+
+
+_CHIP_TYPE_BY_SIZE = {0x80: 0x46, 0x100: 0x56, 0x200: 0x66}
+
+
+def force_eeprom_size(eeprom: Any, size: int) -> None:
+    if size not in _CHIP_TYPE_BY_SIZE:
+        raise PrivateApiError(f"Unsupported forced EEPROM size: {size}")
+    buffer = _require_buffer(eeprom)
+    if len(buffer) > size:
+        del buffer[size:]
+    elif len(buffer) < size:
+        buffer.extend(bytearray(size - len(buffer)))
+    if hasattr(eeprom, "_size"):
+        eeprom._size = size
+    if hasattr(eeprom, "_chip"):
+        eeprom._chip = _CHIP_TYPE_BY_SIZE[size]

@@ -8,6 +8,7 @@ from ftdi_eeprom.eeprom_backend import (
     PrivateApiError,
     assert_eeprom_size,
     decode_raw_image,
+    force_eeprom_size,
     get_decoded_config,
     read_user_area,
     write_raw_image,
@@ -107,6 +108,37 @@ def test_assert_eeprom_size_raises_on_size_mismatch():
     eeprom = FakeEeprom()
     with pytest.raises(PrivateApiError, match="EEPROM buffer size mismatch"):
         assert_eeprom_size(eeprom, 128)
+
+
+def test_force_eeprom_size_truncates_buffer_and_sets_chip_type():
+    eeprom = FakeEeprom()
+    eeprom._eeprom = bytearray(range(256))
+    eeprom._size = 256
+    eeprom._chip = 0x56
+
+    force_eeprom_size(eeprom, 128)
+
+    assert len(eeprom._eeprom) == 128
+    assert eeprom._size == 128
+    assert eeprom._chip == 0x46
+
+
+def test_force_eeprom_size_extends_buffer_when_smaller():
+    eeprom = FakeEeprom()
+    eeprom._eeprom = bytearray(64)
+    eeprom._size = None
+    eeprom._chip = None
+
+    force_eeprom_size(eeprom, 128)
+
+    assert len(eeprom._eeprom) == 128
+    assert eeprom._chip == 0x46
+
+
+def test_force_eeprom_size_rejects_unsupported_size():
+    eeprom = FakeEeprom()
+    with pytest.raises(PrivateApiError, match="Unsupported forced EEPROM size"):
+        force_eeprom_size(eeprom, 192)
 
 
 def test_decode_raw_image_updates_buffer_and_decodes():

@@ -180,6 +180,7 @@ def test_write_uses_d2xx_program_eeprom_on_windows(tmp_path, monkeypatch):
     monkeypatch.setattr(eeprom_manager_module.sys, "platform", "win32")
     monkeypatch.setattr(manager, "open_eeprom", fake_open)
     monkeypatch.setattr(eeprom_manager_module.d2xx_backend, "program_eeprom", fake_program_eeprom)
+    monkeypatch.setattr(eeprom_manager_module.d2xx_backend, "verify_eeprom_write", lambda *_a, **_k: None)
 
     config = {
         "device": {
@@ -264,6 +265,7 @@ def test_write_propagates_eeprom_size_to_d2xx_open(tmp_path, monkeypatch):
     monkeypatch.setattr(eeprom_manager_module.sys, "platform", "win32")
     monkeypatch.setattr(eeprom_manager_module.d2xx_backend, "open_eeprom", fake_open_eeprom)
     monkeypatch.setattr(eeprom_manager_module.d2xx_backend, "program_eeprom", fake_program_eeprom)
+    monkeypatch.setattr(eeprom_manager_module.d2xx_backend, "verify_eeprom_write", lambda *_a, **_k: None)
 
     config = {
         "device": {
@@ -336,7 +338,7 @@ def test_write_rejects_user_area_payload_exceeding_room(tmp_path, monkeypatch):
     }
     eeprom._eeprom = bytearray(128)
 
-    with pytest.raises(EepromManagerError, match="exceeds available UA"):
+    with pytest.raises(EepromManagerError, match="(exceeds available UA|negative)"):
         manager.write("ftdi://ftdi:4232h/1", config, tmp_path / "backup" / "current")
 
 
