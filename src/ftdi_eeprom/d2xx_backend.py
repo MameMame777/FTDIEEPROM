@@ -10,6 +10,7 @@ from typing import Any, Mapping
 FT4232H_DEVICE_VERSION = 0x0800
 FT4232H_D2XX_TYPE = 7
 FT4232H_EEPROM_SIZE = 0x100
+SUPPORTED_EEPROM_SIZES = (0x80, 0x100)
 CHANNEL_LETTERS = {1: "A", 2: "B", 3: "C", 4: "D"}
 CHANNEL_INDEX = {letter: index for index, letter in CHANNEL_LETTERS.items()}
 
@@ -34,7 +35,17 @@ def list_devices(vendor_id: int, product_id: int, serial: str | None = None) -> 
     ]
 
 
-def open_eeprom(url: str, vendor_id: int, product_id: int, chip_name: str) -> Any:
+def open_eeprom(
+    url: str,
+    vendor_id: int,
+    product_id: int,
+    chip_name: str,
+    eeprom_size: int = FT4232H_EEPROM_SIZE,
+) -> Any:
+    if eeprom_size not in SUPPORTED_EEPROM_SIZES:
+        raise ValueError(
+            f"Unsupported EEPROM size {eeprom_size}; expected one of {SUPPORTED_EEPROM_SIZES}"
+        )
     ftd2xx = _import_ftd2xx()
     descriptor = _resolve_descriptor(url, vendor_id, product_id, chip_name)
     handle = ftd2xx.openEx(
@@ -48,7 +59,7 @@ def open_eeprom(url: str, vendor_id: int, product_id: int, chip_name: str) -> An
             raise RuntimeError("Connected FTDI device is not an FT4232H")
         FtdiEeprom = import_module("pyftdi.eeprom").FtdiEeprom
         eeprom = FtdiEeprom()
-        eeprom.connect(_D2xxFtdiAdapter(handle))
+        eeprom.connect(_D2xxFtdiAdapter(handle, eeprom_size))
         return eeprom
     except Exception:
         handle.close()
@@ -241,8 +252,13 @@ def _require_handle(eeprom: Any) -> Any:
 
 
 class _D2xxFtdiAdapter:
-    def __init__(self, handle: Any) -> None:
+    def __init__(self, handle: Any, eeprom_size: int = FT4232H_EEPROM_SIZE) -> None:
+        if eeprom_size not in SUPPORTED_EEPROM_SIZES:
+            raise ValueError(
+                f"Unsupported EEPROM size {eeprom_size}; expected one of {SUPPORTED_EEPROM_SIZES}"
+            )
         self._handle = handle
+        self._eeprom_size = int(eeprom_size)
         self._low_level = import_module("ftd2xx._ftd2xx")
         self._high_level = import_module("ftd2xx.ftd2xx")
         self._connected = True
@@ -261,7 +277,7 @@ class _D2xxFtdiAdapter:
 
     @property
     def max_eeprom_size(self) -> int:
-        return FT4232H_EEPROM_SIZE
+        return self._eeprom_size
 
     def calc_eeprom_checksum(self, data: bytes | bytearray) -> int:
         checksum = 0xAAAA

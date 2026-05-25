@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+import pytest
+
 import ftdi_eeprom.eeprom_manager as eeprom_manager_module
-from ftdi_eeprom.eeprom_manager import Ft4232HEepromManager
+from ftdi_eeprom.eeprom_manager import EepromManagerError, Ft4232HEepromManager
 
 
 class FakeConfigEeprom:
@@ -60,8 +62,11 @@ class FakeRefreshEeprom:
 
 
 class FakeWindowsWriteEeprom:
+    _PROPERTIES = (0, 0x1A)
+
     def __init__(self):
         self.data = b"\x01\x02\x03\x04"
+        self._eeprom = bytearray(256)
         self._ftdi = FakeRefreshAdapter()
 
     def save_config(self, file_obj):
@@ -98,7 +103,8 @@ def test_restore_config_reads_ini_using_file_object(tmp_path, monkeypatch):
     ini_path.write_text("[values]\nproduct = Loaded\n", encoding="utf-8")
 
     @contextmanager
-    def fake_open(_url):
+    def fake_open(_url, eeprom_size_bytes=256):
+        del eeprom_size_bytes
         yield eeprom
 
     monkeypatch.setattr(eeprom_manager_module.sys, "platform", "linux")
@@ -162,7 +168,8 @@ def test_write_uses_d2xx_program_eeprom_on_windows(tmp_path, monkeypatch):
     called = {}
 
     @contextmanager
-    def fake_open(_url):
+    def fake_open(_url, eeprom_size_bytes=256):
+        del eeprom_size_bytes
         yield eeprom
 
     def fake_program_eeprom(program_eeprom_obj, config, user_area_payload):
@@ -215,7 +222,8 @@ def test_restore_uses_d2xx_restore_eeprom_on_windows(tmp_path, monkeypatch):
     image_path.write_bytes(b"\x00\x01\x02\x03")
 
     @contextmanager
-    def fake_open(_url):
+    def fake_open(_url, eeprom_size_bytes=256):
+        del eeprom_size_bytes
         yield eeprom
 
     def fake_restore_eeprom(restore_eeprom_obj, decoded_config, image, user_area_offset):
@@ -240,6 +248,98 @@ def test_restore_uses_d2xx_restore_eeprom_on_windows(tmp_path, monkeypatch):
     assert eeprom._ftdi.calls == [True]
 
 
+def test_write_propagates_eeprom_size_to_d2xx_open(tmp_path, monkeypatch):
+    manager = Ft4232HEepromManager()
+    eeprom = FakeWindowsWriteEeprom()
+    captured_size = {}
+
+    def fake_open_eeprom(url, vendor_id, product_id, chip_name, eeprom_size=256):
+        del url, vendor_id, product_id, chip_name
+        captured_size["size"] = eeprom_size
+        return eeprom
+
+    def fake_program_eeprom(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(eeprom_manager_module.sys, "platform", "win32")
+    monkeypatch.setattr(eeprom_manager_module.d2xx_backend, "open_eeprom", fake_open_eeprom)
+    monkeypatch.setattr(eeprom_manager_module.d2xx_backend, "program_eeprom", fake_program_eeprom)
+
+    config = {
+        "device": {
+            "chip": "FT4232H",
+            "vendor_id": 0x0403,
+            "product_id": 0x6011,
+            "manufacturer": "Xilinx",
+            "product": "X",
+            "serial": "FT4232H0001",
+            "power_max": 100,
+            "has_serial": True,
+            "pnp": True,
+            "eeprom_size_bytes": 128,
+        },
+        "channels": {
+            "A": {"driver": "D2XX", "type": "UART", "drive_current_ma": 4},
+            "B": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
+            "C": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
+            "D": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
+        },
+        "vivado": {
+            "enabled": True,
+            "firmware_id": 0x584A0004,
+            "user_area": {"vendor": "X", "product": "Y"},
+        },
+    }
+    eeprom._eeprom = bytearray(128)
+
+    manager.write("ftdi://ftdi:4232h/1", config, tmp_path / "backup" / "current")
+
+    assert captured_size["size"] == 128
+
+
+def test_write_rejects_user_area_payload_exceeding_room(tmp_path, monkeypatch):
+    manager = Ft4232HEepromManager()
+    eeprom = FakeWindowsWriteEeprom()
+
+    @contextmanager
+    def fake_open(_url, eeprom_size_bytes=256):
+        del eeprom_size_bytes
+        yield eeprom
+
+    monkeypatch.setattr(eeprom_manager_module.sys, "platform", "win32")
+    monkeypatch.setattr(manager, "open_eeprom", fake_open)
+
+    config = {
+        "device": {
+            "chip": "FT4232H",
+            "vendor_id": 0x0403,
+            "product_id": 0x6011,
+            "manufacturer": "Xilinx",
+            "product": "X" * 200,
+            "serial": "FT4232H0001",
+            "power_max": 100,
+            "has_serial": True,
+            "pnp": True,
+            "eeprom_size_bytes": 128,
+        },
+        "channels": {
+            "A": {"driver": "D2XX", "type": "UART", "drive_current_ma": 4},
+            "B": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
+            "C": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
+            "D": {"driver": "VCP", "type": "UART", "drive_current_ma": 4},
+        },
+        "vivado": {
+            "enabled": True,
+            "firmware_id": 0x584A0004,
+            "user_area": {"vendor": "Xilinx", "product": "Y" * 200},
+        },
+    }
+    eeprom._eeprom = bytearray(128)
+
+    with pytest.raises(EepromManagerError, match="exceeds available UA"):
+        manager.write("ftdi://ftdi:4232h/1", config, tmp_path / "backup" / "current")
+
+
 def test_restore_config_uses_d2xx_program_decoded_eeprom_on_windows(tmp_path, monkeypatch):
     manager = Ft4232HEepromManager()
     eeprom = FakeWindowsRestoreConfigEeprom()
@@ -248,7 +348,8 @@ def test_restore_config_uses_d2xx_program_decoded_eeprom_on_windows(tmp_path, mo
     ini_path.write_text("[values]\nproduct = Loaded\n", encoding="utf-8")
 
     @contextmanager
-    def fake_open(_url):
+    def fake_open(_url, eeprom_size_bytes=256):
+        del eeprom_size_bytes
         yield eeprom
 
     def fake_program_decoded_eeprom(program_eeprom_obj, decoded_config, user_area_payload=None):

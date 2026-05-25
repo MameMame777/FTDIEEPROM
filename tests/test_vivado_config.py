@@ -4,7 +4,15 @@ import json
 from pathlib import Path
 import struct
 
-from ftdi_eeprom.vivado_config import VIVADO_FIRMWARE_ID, build_user_area_payload, build_vivado_preset, has_vivado_payload
+import pytest
+
+from ftdi_eeprom.vivado_config import (
+    VIVADO_FIRMWARE_ID,
+    build_user_area_payload,
+    build_vivado_preset,
+    has_vivado_payload,
+    validate_user_area_fits,
+)
 
 
 def test_firmware_id_pack_matches_expected_bytes():
@@ -35,3 +43,20 @@ def test_vivado_preset_matches_xilinx_program_ftdi_ft4232h_defaults():
     assert config["channels"]["D"]["driver"] == "VCP"
     for channel_name in ("A", "B", "C", "D"):
         assert config["channels"][channel_name]["drive_current_ma"] == 4
+
+
+def test_validate_user_area_fits_accepts_payload_within_budget():
+    payload = build_user_area_payload(build_vivado_preset())
+    validate_user_area_fits(payload, available_ua_bytes=len(payload))
+    validate_user_area_fits(payload, available_ua_bytes=len(payload) + 32)
+
+
+def test_validate_user_area_fits_rejects_oversized_payload():
+    payload = build_user_area_payload(build_vivado_preset())
+    with pytest.raises(ValueError, match="exceeds available UA"):
+        validate_user_area_fits(payload, available_ua_bytes=len(payload) - 1)
+
+
+def test_validate_user_area_fits_rejects_negative_room():
+    with pytest.raises(ValueError, match="negative"):
+        validate_user_area_fits(b"\x00\x01", available_ua_bytes=-1)

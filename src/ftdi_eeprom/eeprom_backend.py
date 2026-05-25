@@ -115,3 +115,11 @@ def _require_buffer(eeprom: Any) -> bytearray:
     if not isinstance(buffer, bytearray):
         raise PrivateApiError("pyftdi private _eeprom buffer is not a bytearray")
     return buffer
+
+
+def assert_eeprom_size(eeprom: Any, expected: int) -> None:
+    actual = len(_require_buffer(eeprom))
+    if actual != expected:
+        raise PrivateApiError(
+            f"EEPROM buffer size mismatch: expected {expected} bytes, chip reports {actual} bytes"
+        )

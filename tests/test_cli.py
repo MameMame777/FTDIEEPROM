@@ -28,8 +28,13 @@ class FakeManager(Ft4232HEepromManager):
             return f"ftdi://ftdi:4232h:{serial}/{interface}"
         return f"ftdi://ftdi:4232h/{interface}"
 
-    def auto_probe_url(self, serial: str | None = None, interfaces: tuple[int, ...] = (1, 2, 3, 4)) -> str:
-        del interfaces
+    def auto_probe_url(
+        self,
+        serial: str | None = None,
+        interfaces: tuple[int, ...] = (1, 2, 3, 4),
+        eeprom_size_bytes: int = 256,
+    ) -> str:
+        del interfaces, eeprom_size_bytes
         return self._auto_probe_result.replace("SERIAL", serial or "")
 
 
@@ -76,7 +81,8 @@ def test_auto_probe_falls_back_to_second_interface(monkeypatch: pytest.MonkeyPat
     manager = Ft4232HEepromManager()
     attempted: list[str] = []
 
-    def fake_probe(url: str) -> None:
+    def fake_probe(url: str, eeprom_size_bytes: int = 256) -> None:
+        del eeprom_size_bytes
         attempted.append(url)
         if url.endswith("/1"):
             raise RuntimeError("busy")
@@ -132,7 +138,14 @@ def test_open_eeprom_uses_d2xx_backend_on_windows(monkeypatch: pytest.MonkeyPatc
 
     fake_eeprom = FakeEeprom()
 
-    def fake_open_eeprom(url: str, vendor_id: int, product_id: int, chip_name: str) -> FakeEeprom:
+    def fake_open_eeprom(
+        url: str,
+        vendor_id: int,
+        product_id: int,
+        chip_name: str,
+        eeprom_size: int = 256,
+    ) -> FakeEeprom:
+        del url, vendor_id, product_id, chip_name, eeprom_size
         return fake_eeprom
 
     monkeypatch.setattr(

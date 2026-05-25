@@ -10,6 +10,8 @@ CHANNEL_NAMES = ("A", "B", "C", "D")
 ALLOWED_DRIVERS = {"D2XX", "VCP"}
 ALLOWED_TYPES = {"UART", "RS485"}
 ALLOWED_DRIVE_CURRENTS = {4, 8, 12, 16}
+ALLOWED_EEPROM_SIZES = {128, 256}
+DEFAULT_EEPROM_SIZE_BYTES = 256
 ALLOWED_UNBIND_INTERFACES = {"00", "01", "02", "03"}
 RUNTIME_ONLY_KEYS = {
     "mpsse",
@@ -30,6 +32,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "power_max": 100,
         "has_serial": True,
         "pnp": True,
+        "eeprom_size_bytes": DEFAULT_EEPROM_SIZE_BYTES,
     },
     "channels": {
         "A": {"driver": "D2XX", "type": "UART", "drive_current_ma": 4},
@@ -154,6 +157,12 @@ def _validate_device(device: Any) -> None:
         raise ConfigValidationError("device.has_serial must be a boolean")
     if "pnp" in device and not isinstance(device["pnp"], bool):
         raise ConfigValidationError("device.pnp must be a boolean")
+    if "eeprom_size_bytes" in device:
+        size = device["eeprom_size_bytes"]
+        if not isinstance(size, int) or isinstance(size, bool) or size not in ALLOWED_EEPROM_SIZES:
+            raise ConfigValidationError(
+                f"device.eeprom_size_bytes must be one of {sorted(ALLOWED_EEPROM_SIZES)}"
+            )
 
 
 def _validate_channels(channels: Any) -> None:

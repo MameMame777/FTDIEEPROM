@@ -77,3 +77,33 @@ def test_validate_config_rejects_non_xilinx_manufacturer_for_vivado():
     config["device"]["manufacturer"] = "FTDI"
     with pytest.raises(ConfigValidationError, match="device.manufacturer must be Xilinx"):
         validate_config(config)
+
+
+def test_default_config_eeprom_size_is_256_bytes():
+    config = get_default_config()
+    assert config["device"]["eeprom_size_bytes"] == 256
+
+
+def test_validate_config_accepts_128_byte_eeprom():
+    config = get_default_config()
+    config["device"]["eeprom_size_bytes"] = 128
+    validate_config(config)
+
+
+def test_validate_config_rejects_unsupported_eeprom_size():
+    config = get_default_config()
+    config["device"]["eeprom_size_bytes"] = 192
+    with pytest.raises(ConfigValidationError, match="eeprom_size_bytes"):
+        validate_config(config)
+
+
+def test_validate_config_rejects_bool_eeprom_size():
+    config = get_default_config()
+    config["device"]["eeprom_size_bytes"] = True
+    with pytest.raises(ConfigValidationError, match="eeprom_size_bytes"):
+        validate_config(config)
+
+
+def test_iter_eeprom_properties_excludes_eeprom_size():
+    properties = dict(iter_eeprom_properties(get_default_config()))
+    assert "eeprom_size_bytes" not in properties

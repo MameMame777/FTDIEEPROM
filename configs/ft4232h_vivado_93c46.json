@@ -4,12 +4,12 @@
     "vendor_id": 1027,
     "product_id": 24593,
     "manufacturer": "Xilinx",
-    "product": "FT4232H Vivado Bridge",
+    "product": "FT4232H",
     "serial": "FT4232H0001",
     "power_max": 100,
     "has_serial": true,
     "pnp": true,
-    "eeprom_size_bytes": 256
+    "eeprom_size_bytes": 128
   },
   "channels": {
     "A": {
@@ -38,7 +38,7 @@
     "firmware_id": 1481244676,
     "user_area": {
       "vendor": "Xilinx",
-      "product": "FT4232H JTAG"
+      "product": "JTAG"
     }
   },
   "udev": {

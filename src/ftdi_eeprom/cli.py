@@ -7,7 +7,9 @@ import sys
 from typing import Any, Sequence
 
 from .config_loader import (
+    ALLOWED_EEPROM_SIZES,
     ConfigValidationError,
+    DEFAULT_EEPROM_SIZE_BYTES,
     get_default_config,
     load_config,
     merge_config,
@@ -32,6 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--url", help="Full pyftdi URL, for example ftdi://ftdi:4232h/1")
     common.add_argument("--serial", help="Target FT4232H serial string")
     common.add_argument("--interface", type=int, choices=(1, 2, 3, 4), help="FT4232H interface number")
+    common.add_argument(
+        "--eeprom-size",
+        type=int,
+        choices=sorted(ALLOWED_EEPROM_SIZES),
+        default=None,
+        help=f"EEPROM size in bytes (default: from --config or {DEFAULT_EEPROM_SIZE_BYTES})",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("read", parents=[common], help="Read and display EEPROM contents")
@@ -96,7 +105,11 @@ def validate_command_args(args: argparse.Namespace) -> None:
             raise CliValidationError("restore-config requires --apply")
 
 
-def resolve_url_from_args(args: argparse.Namespace, manager: Ft4232HEepromManager) -> str:
+def resolve_url_from_args(
+    args: argparse.Namespace,
+    manager: Ft4232HEepromManager,
+    eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES,
+) -> str:
     if getattr(args, "url", None):
         return args.url
 
@@ -119,7 +132,16 @@ def resolve_url_from_args(args: argparse.Namespace, manager: Ft4232HEepromManage
     device = devices[0]
     if getattr(args, "interface", None):
         return manager.build_url(device.serial, args.interface)
-    return manager.auto_probe_url(device.serial)
+    return manager.auto_probe_url(device.serial, eeprom_size_bytes=eeprom_size_bytes)
+
+
+def resolve_eeprom_size(args: argparse.Namespace, config: dict[str, Any] | None = None) -> int:
+    cli_size = getattr(args, "eeprom_size", None)
+    if cli_size is not None:
+        return int(cli_size)
+    if config is not None:
+        return int(config.get("device", {}).get("eeprom_size_bytes", DEFAULT_EEPROM_SIZE_BYTES))
+    return DEFAULT_EEPROM_SIZE_BYTES
 
 
 def load_write_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -168,29 +190,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         manager = Ft4232HEepromManager()
 
         if args.command == "read":
-            print(manager.dump(resolve_url_from_args(args, manager)))
+            size = resolve_eeprom_size(args)
+            print(manager.dump(resolve_url_from_args(args, manager, size), eeprom_size_bytes=size))
             return 0
 
         if args.command == "hexdump":
-            print(manager.hexdump(resolve_url_from_args(args, manager)))
+            size = resolve_eeprom_size(args)
+            print(manager.hexdump(resolve_url_from_args(args, manager, size), eeprom_size_bytes=size))
             return 0
 
         if args.command == "backup":
-            backup = manager.backup(resolve_url_from_args(args, manager), args.output)
+            size = resolve_eeprom_size(args)
+            backup = manager.backup(
+                resolve_url_from_args(args, manager, size), args.output, eeprom_size_bytes=size
+            )
             print(f"Backup written: {backup.bin_path}")
             print(f"Config written: {backup.ini_path}")
             return 0
 
         if args.command == "write":
             config = load_write_config(args)
+            size = resolve_eeprom_size(args, config)
             if not args.apply:
                 print(preview_write_plan(config))
                 return 0
             if not args.yes and not confirm_operation("Write EEPROM changes?"):
                 print("Aborted")
                 return 1
-            url = resolve_url_from_args(args, manager)
-            result = manager.write(url, config, manager.default_backup_prefix("write"))
+            url = resolve_url_from_args(args, manager, size)
+            result = manager.write(url, config, manager.default_backup_prefix("write"), eeprom_size_bytes=size)
             print(f"Target: {result.url}")
             print(f"Automatic backup: {result.backup.bin_path}")
             print(f"Automatic config backup: {result.backup.ini_path}")
@@ -199,23 +227,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "restore":
+            image_bytes = Path(args.image).stat().st_size if Path(args.image).is_file() else None
+            if image_bytes in ALLOWED_EEPROM_SIZES and getattr(args, "eeprom_size", None) is None:
+                size = image_bytes
+            else:
+                size = resolve_eeprom_size(args)
             if not args.yes and not confirm_operation("Restore raw EEPROM image?"):
                 print("Aborted")
                 return 1
-            backup = manager.restore(resolve_url_from_args(args, manager), args.image, manager.default_backup_prefix("restore"))
+            backup = manager.restore(
+                resolve_url_from_args(args, manager, size),
+                args.image,
+                manager.default_backup_prefix("restore"),
+                eeprom_size_bytes=size,
+            )
             print(f"Automatic backup: {backup.bin_path}")
             print(f"Automatic config backup: {backup.ini_path}")
             print("Raw EEPROM image restored")
             return 0
 
         if args.command == "restore-config":
+            size = resolve_eeprom_size(args)
             if not args.yes and not confirm_operation("Restore EEPROM settings from INI? User Area will not be restored."):
                 print("Aborted")
                 return 1
             backup = manager.restore_config(
-                resolve_url_from_args(args, manager),
+                resolve_url_from_args(args, manager, size),
                 args.ini_file,
                 manager.default_backup_prefix("restore-config"),
+                eeprom_size_bytes=size,
             )
             print(f"Automatic backup: {backup.bin_path}")
             print(f"Automatic config backup: {backup.ini_path}")

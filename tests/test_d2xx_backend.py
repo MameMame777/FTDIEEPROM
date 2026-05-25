@@ -123,6 +123,28 @@ def test_d2xx_adapter_close_ignores_handle_close_errors():
     assert adapter._connected is False
 
 
+def test_d2xx_adapter_max_eeprom_size_defaults_to_256_bytes():
+    adapter = object.__new__(d2xx_backend._D2xxFtdiAdapter)
+    adapter._eeprom_size = d2xx_backend.FT4232H_EEPROM_SIZE
+    assert adapter.max_eeprom_size == 256
+
+
+def test_d2xx_adapter_max_eeprom_size_reflects_configured_value():
+    adapter = object.__new__(d2xx_backend._D2xxFtdiAdapter)
+    adapter._eeprom_size = 128
+    assert adapter.max_eeprom_size == 128
+
+
+def test_d2xx_adapter_rejects_unsupported_eeprom_size():
+    with pytest.raises(ValueError, match="Unsupported EEPROM size"):
+        d2xx_backend._D2xxFtdiAdapter(handle=object(), eeprom_size=192)
+
+
+def test_open_eeprom_rejects_unsupported_eeprom_size():
+    with pytest.raises(ValueError, match="Unsupported EEPROM size"):
+        d2xx_backend.open_eeprom("ftdi://ftdi:4232h/1", 0x0403, 0x6011, "4232h", eeprom_size=192)
+
+
 def test_program_eeprom_maps_config_to_ftd2xx_progdata_fields():
     class FakeHandle:
         def __init__(self):

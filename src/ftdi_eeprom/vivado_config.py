@@ -57,3 +57,15 @@ def build_user_area_payload(config: Mapping[str, Any]) -> bytes:
     product = str(user_area.get("product") or config["device"]["product"])
     firmware_id = int(vivado.get("firmware_id", VIVADO_FIRMWARE_ID))
     return struct.pack("<I", firmware_id) + vendor.encode("utf-8") + b"\x00" + product.encode("utf-8") + b"\x00"
+
+
+def validate_user_area_fits(payload: bytes, available_ua_bytes: int) -> None:
+    if available_ua_bytes < 0:
+        raise ValueError(
+            f"Available User Area is negative ({available_ua_bytes}B); EEPROM has no room for Vivado payload."
+        )
+    if len(payload) > available_ua_bytes:
+        raise ValueError(
+            f"Vivado User Area payload {len(payload)}B exceeds available UA {available_ua_bytes}B; "
+            "shorten device.product / vivado.user_area.product or use a 93C56 (256B) EEPROM."
+        )

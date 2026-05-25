@@ -6,6 +6,7 @@ import pytest
 
 from ftdi_eeprom.eeprom_backend import (
     PrivateApiError,
+    assert_eeprom_size,
     decode_raw_image,
     get_decoded_config,
     read_user_area,
@@ -95,6 +96,17 @@ def test_get_decoded_config_returns_copy_of_private_config():
     assert config == {"vendor_id": 0x0403}
     assert config is not eeprom._config
     assert eeprom.synced is True
+
+
+def test_assert_eeprom_size_passes_for_matching_buffer():
+    eeprom = FakeEeprom()
+    assert_eeprom_size(eeprom, 32)
+
+
+def test_assert_eeprom_size_raises_on_size_mismatch():
+    eeprom = FakeEeprom()
+    with pytest.raises(PrivateApiError, match="EEPROM buffer size mismatch"):
+        assert_eeprom_size(eeprom, 128)
 
 
 def test_decode_raw_image_updates_buffer_and_decodes():

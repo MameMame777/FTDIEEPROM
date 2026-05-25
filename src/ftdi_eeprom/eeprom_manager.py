@@ -10,8 +10,8 @@ from tempfile import TemporaryDirectory
 from typing import Any, Iterator, Mapping, cast
 
 from . import d2xx_backend, eeprom_backend
-from .config_loader import iter_eeprom_properties
-from .vivado_config import build_user_area_payload, has_vivado_payload
+from .config_loader import DEFAULT_EEPROM_SIZE_BYTES, iter_eeprom_properties
+from .vivado_config import build_user_area_payload, has_vivado_payload, validate_user_area_fits
 
 
 class EepromManagerError(RuntimeError):
@@ -100,33 +100,49 @@ class Ft4232HEepromManager:
             return f"ftdi://ftdi:{self.chip_name}:{serial}/{interface}"
         return f"ftdi://ftdi:{self.chip_name}/{interface}"
 
-    def auto_probe_url(self, serial: str | None = None, interfaces: tuple[int, ...] = (1, 2, 3, 4)) -> str:
+    def auto_probe_url(
+        self,
+        serial: str | None = None,
+        interfaces: tuple[int, ...] = (1, 2, 3, 4),
+        eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES,
+    ) -> str:
         errors: list[str] = []
         for interface in interfaces:
             url = self.build_url(serial, interface)
             try:
-                self.probe_url(url)
+                self.probe_url(url, eeprom_size_bytes=eeprom_size_bytes)
                 return url
             except Exception as exc:  # pragma: no cover - exercised with mocks in tests
                 errors.append(f"{url}: {exc}")
         error_text = "\n".join(errors)
         raise DeviceSelectionError(f"No accessible FT4232H interface found.\n{error_text}")
 
-    def probe_url(self, url: str) -> None:
-        with self.open_eeprom(url):
+    def probe_url(self, url: str, eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES) -> None:
+        with self.open_eeprom(url, eeprom_size_bytes=eeprom_size_bytes):
             return
 
     @contextmanager
-    def open_eeprom(self, url: str) -> Iterator[Any]:
+    def open_eeprom(
+        self,
+        url: str,
+        eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES,
+    ) -> Iterator[Any]:
         eeprom = None
         try:
             if sys.platform.startswith("win"):
-                eeprom = d2xx_backend.open_eeprom(url, self.vendor_id, self.product_id, self.chip_name)
+                eeprom = d2xx_backend.open_eeprom(
+                    url,
+                    self.vendor_id,
+                    self.product_id,
+                    self.chip_name,
+                    eeprom_size=eeprom_size_bytes,
+                )
             else:
                 self._ensure_usb_backend_available()
                 FtdiEeprom = self._import_pyftdi_eeprom()
                 eeprom = FtdiEeprom()
                 eeprom.open(url)
+                eeprom_backend.assert_eeprom_size(eeprom, eeprom_size_bytes)
             yield eeprom
         except Exception as exc:  # pragma: no cover - hardware dependent
             raise EepromManagerError(f"Failed to open EEPROM at {url}: {exc}") from exc
@@ -136,14 +152,14 @@ class Ft4232HEepromManager:
                 if callable(close):
                     close()
 
-    def read(self, url: str) -> dict[str, Any]:
-        with self.open_eeprom(url) as eeprom:
+    def read(self, url: str, eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES) -> dict[str, Any]:
+        with self.open_eeprom(url, eeprom_size_bytes=eeprom_size_bytes) as eeprom:
             raw = bytes(eeprom.data)
             config_text = self._capture_config_text(eeprom)
         return {"url": url, "raw": raw, "config_text": config_text}
 
-    def dump(self, url: str) -> str:
-        snapshot = self.read(url)
+    def dump(self, url: str, eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES) -> str:
+        snapshot = self.read(url, eeprom_size_bytes=eeprom_size_bytes)
         raw = snapshot["raw"]
         lines = [
             f"URL: {snapshot['url']}",
@@ -157,18 +173,41 @@ class Ft4232HEepromManager:
             lines.extend(["", "Decoded configuration:", config_text])
         return "\n".join(lines)
 
-    def hexdump(self, url: str) -> str:
-        snapshot = self.read(url)
+    def hexdump(self, url: str, eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES) -> str:
+        snapshot = self.read(url, eeprom_size_bytes=eeprom_size_bytes)
         return self._format_hexdump(snapshot["raw"])
 
-    def backup(self, url: str, basename: str | Path) -> BackupArtifacts:
-        with self.open_eeprom(url) as eeprom:
+    def backup(
+        self,
+        url: str,
+        basename: str | Path,
+        eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES,
+    ) -> BackupArtifacts:
+        with self.open_eeprom(url, eeprom_size_bytes=eeprom_size_bytes) as eeprom:
             return self._create_backup_from_eeprom(eeprom, basename)
 
-    def write(self, url: str, config: Mapping[str, Any], backup_prefix: str | Path) -> WriteResult:
-        with self.open_eeprom(url) as eeprom:
+    def write(
+        self,
+        url: str,
+        config: Mapping[str, Any],
+        backup_prefix: str | Path,
+        eeprom_size_bytes: int | None = None,
+    ) -> WriteResult:
+        size = int(
+            eeprom_size_bytes
+            if eeprom_size_bytes is not None
+            else config.get("device", {}).get("eeprom_size_bytes", DEFAULT_EEPROM_SIZE_BYTES)
+        )
+        with self.open_eeprom(url, eeprom_size_bytes=size) as eeprom:
             backup = self._create_backup_from_eeprom(eeprom, backup_prefix)
             user_area_payload = build_user_area_payload(config) if has_vivado_payload(config) else b""
+            if user_area_payload:
+                ua_offset = eeprom_backend.get_user_area_offset(eeprom)
+                available_ua = eeprom_backend.get_user_area_size(eeprom, ua_offset)
+                try:
+                    validate_user_area_fits(user_area_payload, available_ua)
+                except ValueError as exc:
+                    raise EepromManagerError(str(exc)) from exc
             if sys.platform.startswith("win"):
                 d2xx_backend.program_eeprom(eeprom, config, user_area_payload)
             else:
@@ -182,9 +221,15 @@ class Ft4232HEepromManager:
         property_names = [name for name, _ in iter_eeprom_properties(config)]
         return WriteResult(url=url, backup=backup, property_names=property_names, user_area_length=len(user_area_payload))
 
-    def restore(self, url: str, image_path: str | Path, backup_prefix: str | Path) -> BackupArtifacts:
+    def restore(
+        self,
+        url: str,
+        image_path: str | Path,
+        backup_prefix: str | Path,
+        eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES,
+    ) -> BackupArtifacts:
         image = Path(image_path).read_bytes()
-        with self.open_eeprom(url) as eeprom:
+        with self.open_eeprom(url, eeprom_size_bytes=eeprom_size_bytes) as eeprom:
             backup = self._create_backup_from_eeprom(eeprom, backup_prefix)
             if sys.platform.startswith("win"):
                 eeprom_backend.decode_raw_image(eeprom, image)
@@ -196,8 +241,14 @@ class Ft4232HEepromManager:
             self._refresh_device_enumeration(eeprom)
         return backup
 
-    def restore_config(self, url: str, ini_path: str | Path, backup_prefix: str | Path) -> BackupArtifacts:
-        with self.open_eeprom(url) as eeprom:
+    def restore_config(
+        self,
+        url: str,
+        ini_path: str | Path,
+        backup_prefix: str | Path,
+        eeprom_size_bytes: int = DEFAULT_EEPROM_SIZE_BYTES,
+    ) -> BackupArtifacts:
+        with self.open_eeprom(url, eeprom_size_bytes=eeprom_size_bytes) as eeprom:
             backup = self._create_backup_from_eeprom(eeprom, backup_prefix)
             with Path(ini_path).open("r", encoding="utf-8") as config_file:
                 eeprom.load_config(config_file)
